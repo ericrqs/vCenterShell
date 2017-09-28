@@ -65,4 +65,9 @@ class VnicToNetworkMapper(object):
         for network in existing_network:
             if hasattr(network, 'name') and hasattr(network, 'key') and network.key == key:
                 return network.name
+
+            # standard vswitch network - substitute moid for the key, e.g. network-123
+            if hasattr(network, 'name') and str(network._moId) == key:
+                return network.name
+
         return default_network

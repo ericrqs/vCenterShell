@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 from threading import Lock
+from time import sleep
+
 from pyVmomi import vim
 
 
@@ -44,16 +46,35 @@ class DvPortGroupCreator(object):
                     logger.debug("Failed to find port group for {}".format(dv_port_name), exc_info=True)
                     network = None
 
+            # try to find it as a standard vswitch network on the host where the VM is running
+            if network is None:
+                for n in vm.runtime.host.network:
+                    if n.name == dv_port_name:
+                        network = n
+                        break
+                else:
+                    logger.debug("Failed to find {} as a standard network".format(dv_port_name))
+
             # if we still couldn't get the network ---> create it(can't find it, play god!)
             if network is None:
-                self._create_dv_port_group(dv_port_name,
-                                           dv_switch_name,
-                                           dv_switch_path,
-                                           si,
-                                           vlan_spec,
-                                           vlan_id,
-                                           logger,
-                                           promiscuous_mode)
+                # if dvswitch name is actually a standard vswitch on the host where the VM is running
+                if [vs for vs in vm.runtime.host.config.network.vswitch if vs.name == dv_switch_name]:
+                    network = self._create_standard_portgroup_on_host(vm.runtime.host,
+                                                                      dv_switch_name,
+                                                                      dv_port_name,
+                                                                      vlan_spec,
+                                                                      vlan_id,
+                                                                      promiscuous_mode,
+                                                                      logger)
+                else:
+                    self._create_dv_port_group(dv_port_name,
+                                               dv_switch_name,
+                                               dv_switch_path,
+                                               si,
+                                               vlan_spec,
+                                               vlan_id,
+                                               logger,
+                                               promiscuous_mode)
                 network = self.pyvmomi_service.find_network_by_name(si, dv_switch_path, dv_port_name)
 
             if not network:
@@ -66,6 +87,29 @@ class DvPortGroupCreator(object):
             if error:
                 raise error
             return network
+
+    def _create_standard_portgroup_on_host(self, host, vswitchName, portgroupName, vlan_spec, vlan_id, promiscuous, logger):
+        portgroup_spec = vim.host.PortGroup.Specification()
+        portgroup_spec.vswitchName = vswitchName
+        portgroup_spec.name = portgroupName
+        if 'VlanIdSpec' in str(type(vlan_spec)):
+            portgroup_spec.vlanId = vlan_id
+        else:
+            portgroup_spec.vlanId = 4095
+        network_policy = vim.host.NetworkPolicy()
+        network_policy.security = vim.host.NetworkPolicy.SecurityPolicy()
+        network_policy.security.allowPromiscuous = str(promiscuous).lower() == 'true'
+        network_policy.security.macChanges = False
+        network_policy.security.forgedTransmits = False
+        portgroup_spec.policy = network_policy
+        host.configManager.networkSystem.AddPortGroup(portgroup_spec)
+        for _ in range(20):
+            sleep(3)
+            for network in host.network:
+                if network.name == portgroupName:
+                    return network
+        logger.debug('_create_standard_portgroup_on_host failed to find portgroup within 1 minute after creation')
+        raise Exception('_create_standard_portgroup_on_host failed to find portgroup within 1 minute after creation')
 
     def _create_dv_port_group(self, dv_port_name, dv_switch_name, dv_switch_path, si, spec, vlan_id,
                               logger, promiscuous_mode):

@@ -595,6 +595,10 @@ class pyVmomiService:
         for network in vm.network:
             if hasattr(network, 'key') and network_key == network.key:
                 return network
+
+            # standard vswitch network - substitute moid for the key, e.g. network-123
+            if str(network._moId) == network_key:
+                return network
         return
 
     def get_network_by_mac_address(self, vm, mac_address):

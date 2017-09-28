@@ -56,13 +56,18 @@ class VirtualSwitchConnectCommand:
 
         connection_results = []
         for updated_mapping in updated_mappings:
+            try:
+                key = updated_mapping.network.key
+            except:
+                # standard vswitch network - substitute moid for the key, e.g. network-123
+                key = str(updated_mapping.network._moId)
 
             connection_result = ConnectionResult(mac_address=updated_mapping.vnic.macAddress,
                                                  vnic_name=updated_mapping.vnic.deviceInfo.label,
                                                  requested_vnic=updated_mapping.requested_vnic,
                                                  vm_uuid=vm_uuid,
                                                  network_name=updated_mapping.network.name,
-                                                 network_key=updated_mapping.network.key)
+                                                 network_key=key)
             connection_results.append(connection_result)
 
         return connection_results
